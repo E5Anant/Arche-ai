@@ -264,12 +264,24 @@ llm_tool - If this tool is use than you have to answer users query in best possi
             else:
                 raise ValueError(f"Tool '{tool_name}' not found.")
 
-        if tool.params is None or tool.params == "" or tool.params == '':
-            tool_response = tool()
+        # Check if the function takes 0 positional arguments
+        if tool.func.__code__.co_argcount == 0:
+            # Call the function directly
+            try:
+                result = tool.func()
+            except Exception as e:
+                result = f"Error calling tool {tool_name}: {e}"
         else:
-            tool_response = tool(query)
+            # Use the existing logic to call the function with arguments
+            query = call["tool_input"]
+            print(f"{Fore.CYAN}Extracted Tool Name:{Style.RESET_ALL} {tool_name}")
+            print(f"{Fore.CYAN}Extracted Parameter:{Style.RESET_ALL} {query}")
+            try:
+                result = tool.func(query)
+            except Exception as e:
+                result = f"Error calling tool {tool_name}: {e}"
 
-        return tool_name, tool_response
+        return tool_name, result
 
     def run(self) -> str:
         """Main execution logic of the agent."""
