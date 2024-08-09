@@ -329,7 +329,7 @@ Response:
         return tool_name, tool_response
 
     def _generate_summary(self, results: Dict[str, str]) -> str:
-         summarizer_llm = self.llm.__class__()
+        summarizer_llm = self.llm.__class__()
         
         summarizer_llm.llm.__init__(system_prompt= f"""
 You are {self.name}, an AI agent. You are provided with output from the tools in JSON format. Your task is to use this information to give the best possible answer to the query. Reply in a natural language style, only in text, and to the point. Do not reply in JSON.
