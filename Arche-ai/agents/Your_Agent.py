@@ -104,7 +104,7 @@ class Agent:
         self.all_functions = [func for func in self.all_functions if func['function']['name'] != tool_name]
 
     def _run_no_tool(self) -> str:
-        self._initialize_llm(f"""
+        self.llm.__init__(f"""
 You are {self.name}, {self.description}.
 ### OUTPUT STYLE:
 {self.sample_output}
@@ -121,7 +121,7 @@ You are {self.name}, {self.description}.
             for tool in self.tools
         ])
 
-        self._initialize_llm(f"""
+        self.llm.__init__(f"""
 You are an AI assistant designed to generate JSON responses based on provided tools.
 
 Before responding, ask yourself:
@@ -329,9 +329,8 @@ Response:
         return tool_name, tool_response
 
     def _generate_summary(self, results: Dict[str, str]) -> str:
-        summarizer_llm = self.llm.__class__()
-        
-        summarizer_llm.llm.__init__(system_prompt= f"""
+        self.llm.reset()
+        self.llm.__init__(f"""
 You are {self.name}, an AI agent. You are provided with output from the tools in JSON format. Your task is to use this information to give the best possible answer to the query. Reply in a natural language style, only in text, and to the point. Do not reply in JSON.
 
 ### TOOLS:
@@ -346,7 +345,7 @@ llm_tool - If this tool is used, you must answer the user's query in the best po
 - You are no longer generating JSON responses. Provide a natural language summary based on the information from the tools.
 """)
         try:
-            summary = summarizer_llm.llm.run(f"[QUERY]\n{self.task}\n\n[TOOLS]\n{results}")
+            summary = self.llm.run(f"[QUERY]\n{self.task}\n\n[TOOLS]\n{results}")
             if self.verbose:
                 print("Final Response:")
                 print(summary)
@@ -355,16 +354,6 @@ llm_tool - If this tool is used, you must answer the user's query in the best po
             if self.verbose:
                 print(f"{Fore.RED}Error generating summary:{Style.RESET_ALL} {str(e)}")
             return "There was an error generating the summary."
-
-    def _finalize_response(self, response: str) -> None:
-        self.llm.reset()
-        self.llm.add_message("user", self.task)
-        if isinstance(self.llm, Gemini):
-            self.llm.add_message("model", response)
-        elif isinstance(self.llm, Cohere):
-            self.llm.add_message("Chatbot", response)
-        else:
-            self.llm.add_message("assistant", response)
 
     def run(self) -> str:
         self.llm.reset()
