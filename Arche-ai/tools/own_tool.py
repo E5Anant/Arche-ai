@@ -1,19 +1,24 @@
-from typing import Callable, Optional
+from typing import Callable, Dict, Any, Optional
 
 class OwnTool:
-    def __init__(self, func: Callable, description: str, **params):
+    """Represents a tool that the agent can use."""
+
+    def __init__(
+        self, func: Callable, description: str, params: Optional[Dict[str, Any]] = None, returns_value: bool = True
+    ):
         """
-        Initialize the OwnTool with the given parameters.
+        Initializes an OwnTool instance.
 
         Args:
-            func (Callable): The tool function to use.
-            description (str): The description of the tool.
-            params (Optional[str]): The parameters for the tool.
+            func (Callable): The function to execute when the tool is called.
+            description (str): A description of the tool.
+            params (Optional[Dict[str, Any]], optional): A dictionary of parameters 
+                                                        for the tool. Defaults to None.
+            returns_value (bool, optional): If True, the tool returns a value. 
+                                           If False, it's considered an action tool
+                                           that doesn't return a value. Defaults to True.
         """
         self.func = func
         self.description = description
-        if params is not None:
-            self.params = params
-
-    def __call__(self, *args, **kwargs):
-        return self.func(*args, **kwargs)
+        self.params = params
+        self.returns_value = returns_value  # Add this line 
