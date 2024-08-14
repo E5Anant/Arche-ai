@@ -1,6 +1,6 @@
-from llms import GroqLLM
+from llms import Cohere
 from agents import Agent
-from tools import OwnTool, get_weather, get_current_time, web_search
+from tools import OwnTool, get_current_time, web_search
 
 def gcd(a:int, b:int):
     """
@@ -15,44 +15,47 @@ def gcd(a:int, b:int):
     """
     while b:
         a, b = b, a % b
-    return a
+    print(a)
     # return a+b
 
 # Define the tools using the OwnTool class
 gcd_tool = OwnTool(
     func=gcd,
     description="Provides the gcd of two provided numbers",
-    params={"a": {"type": "int", "description": "The first number includes only number such as 1 ,2"}, "b": {"type": "int", "description": "The second number such as 1,2 ,3"}}
+    params={"l": {"type": "int", "description": "The first number includes only number such as 1 ,2"}, "h": {"type": "int", "description": "The second number such as 1,2 ,3"}},
+    returns_value=False
 )
 
 web_tool = OwnTool(
     func=web_search,
     description="Provides the current web results from Google for the given query, best for getting real-time data.",
-    params={"query": {"type": "string", "description": "The query to do search for"}}
+    params={"hello": {"type": "string", "description": "The query to do search for"}},
+    returns_value=True
 )
 
 time_tool = OwnTool(
     func=get_current_time,
-    description="Provides the current time."
+    description="Provides the current time.",
+    returns_value=True
 )
 
 # Initialize the language model instance
 
-llm_instance = GroqLLM()
+llm_instance = Cohere()
+
+Chatbot = Agent(
+        llm=llm_instance,
+        tools=[web_tool, gcd_tool, time_tool],
+        name="ChatBot",
+        description="a powerfull ai agent",
+        sample_output="",
+        task="",
+        verbose=True,
+    )
 
 
 while True:
     # Create the agent with multiple tools
-    agent = Agent(
-        llm=llm_instance,
-        tools=[gcd_tool, web_tool, time_tool],
-        name="Chatbot",
-        description="A powerful Chatbot",
-        sample_output="",
-        task=input(">>> "),
-        verbose=True
-    )
-
-    # Run the agent and print the result
-    result = agent.run()
+    Chatbot.task = input(">>>")
+    Chatbot.run()
     # print(result)
