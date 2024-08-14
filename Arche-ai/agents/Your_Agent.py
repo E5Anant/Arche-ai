@@ -1,13 +1,15 @@
-from llms import GroqLLM, Gemini, Cohere
+import json
+import re
+from llms import GroqLLM, Gemini, Cohere  # Make sure to import your LLM classes
 from tools import OwnTool
 from typing import Type, List, Optional, Dict, Any
-import json
 from colorama import Fore, Style
 import concurrent.futures
-import re
 
 def convert_function(func_name, description, **params):
-    """Converts function info to a JSON function schema."""
+    """Converts function info to a JSON function schema.
+    Handles cases where params might be None.
+    """
 
     function_dict = {
         "type": "function",
@@ -17,15 +19,21 @@ def convert_function(func_name, description, **params):
             "parameters": {
                 "type": "object",
                 "properties": {},
-                "required": []
-            }
-        }
+                "required": [],
+            },
+        },
     }
+
+    # Handle the case when params is None
+    if params is None:
+        params = {}
 
     for param_name, param_info in params.items():
         try:
             if "description" not in param_info:
-                param_info["description"] = f"Description for {param_name} is missing. Defaulting to {param_info}"
+                param_info[
+                    "description"
+                ] = f"Description for {param_name} is missing. Defaulting to {param_info}"
                 descri = f"{param_info}"
             else:
                 descri = param_info["description"]
@@ -34,21 +42,30 @@ def convert_function(func_name, description, **params):
 
         try:
             param_type = param_info.get("type", "string")
-            valid_types = ("string", "number", "boolean", "enum", "array", "object", "integer")
+            valid_types = (
+                "string",
+                "number",
+                "boolean",
+                "enum",
+                "array",
+                "object",
+                "integer",
+            )
             if param_type not in valid_types:
-                print(f"Warning: Invalid type '{param_type}' for '{param_name}'. Defaulting to 'string'.")
+                print(
+                    f"Warning: Invalid type '{param_type}' for '{param_name}'. Defaulting to 'string'."
+                )
                 param_type = "string"
         except:
             param_type = "string"
 
-        param_properties = {
-            "type": param_type,
-            "description": descri
-        }
+        param_properties = {"type": param_type, "description": descri}
 
         if param_type == "enum":
             if "options" not in param_info:
-                raise ValueError(f"Parameter '{param_name}' of type 'enum' requires an 'options' list.")
+                raise ValueError(
+                    f"Parameter '{param_name}' of type 'enum' requires an 'options' list."
+                )
             param_properties["enum"] = param_info["options"]
 
         try:
@@ -59,11 +76,15 @@ def convert_function(func_name, description, **params):
 
         try:
             if param_info.get("required", False):
-                function_dict["function"]["parameters"]["required"].append(param_name)
+                function_dict["function"]["parameters"]["required"].append(
+                    param_name
+                )
         except:
             function_dict["function"]["parameters"]["required"].append(param_name)
 
-        function_dict["function"]["parameters"]["properties"][param_name] = param_properties
+        function_dict["function"]["parameters"]["properties"][
+            param_name
+        ] = param_properties
 
     return function_dict
 
@@ -87,8 +108,8 @@ class Agent:
         self.verbose = verbose
 
         self.all_functions = [
-            convert_function(tool.func.__name__, tool.description, **tool.params) for tool in self.tools
-        ] + [convert_function("llm_tool", "A default tool that provides AI-generated text responses and it cannot answer real-time queries because of the knowledge cut off of October 2019.")]
+            convert_function(tool.func.__name__, tool.description, **(tool.params or {})) for tool in self.tools # Add or {} to handle None
+        ] + [convert_function("llm_tool", "A default tool that provides AI-generated text responses and it cannot answer real-time queries because of the knowledge cut off of October 2019.", **{})]
 
     def _initialize_llm(self, system_prompt: str) -> None:
         self.llm.__init__(system_prompt=system_prompt)
@@ -104,7 +125,7 @@ class Agent:
         self.all_functions = [func for func in self.all_functions if func['function']['name'] != tool_name]
 
     def _run_no_tool(self) -> str:
-        self.llm.__init__(f"""
+        self._initialize_llm(f"""
 You are {self.name}, {self.description}.
 ### OUTPUT STYLE:
 {self.sample_output}
@@ -114,14 +135,34 @@ You are {self.name}, {self.description}.
         self.llm.reset()
         return result
 
+    def _fix_json(self, raw_json: str) -> str:
+        """Attempts to fix common JSON errors."""
+        # Remove extraneous characters
+        corrected_json = raw_json.replace("```json", "").replace("```", "").strip()
+
+        # Replace single quotes with double quotes
+        corrected_json = corrected_json.replace("'", "\"")
+
+        # --- Additional Cleaning ---
+        # 1. Remove problematic control characters (optional, but might help)
+        corrected_json = "".join(c for c in corrected_json if c.isprintable())
+        
+        # 2. Normalize line endings to Unix-style (\n)
+        corrected_json = corrected_json.replace('\r\n', '\n')
+
+        return corrected_json
+
     def _run_with_tools(self) -> str:
         """Handles tasks that require using tools."""
-        self.tools_info = "\n".join([
-            f"Tool Name: {tool.func.__name__} - {tool.description}\nTool Parameters: {tool.params}"
-            for tool in self.tools
-        ])
+        self.tools_info = "\n".join(
+            [
+                f"Tool Name: {tool.func.__name__} - {tool.description}\nTool Parameters: {tool.params}"
+                for tool in self.tools
+            ]
+        )
 
-        self.llm.__init__(f"""
+        self._initialize_llm(
+            f"""
 You are an AI assistant designed to generate JSON responses based on provided tools.
 
 Before responding, ask yourself:
@@ -211,66 +252,79 @@ Response:
 }}
 
 ***Remember these are just examples, the tools and parameters vary according to the details given above.***
-""")
+"""
+        )
 
         response = self.llm.run(self.task).strip()
 
         if self.verbose:
             print(f"{Fore.YELLOW}Raw LLM Response:{Style.RESET_ALL} {response}")
 
-        # Preprocess the response to fix common JSON errors
-        response = self._preprocess_response(response)
+        # --- Improved JSON Extraction and Handling ---
+        json_match = re.search(r'(\{.*\})', response, re.DOTALL)  # Use re.DOTALL
 
-        # Extract only the JSON part from the response
-        json_part = self._extract_json(response)
+        if json_match:
+            extracted_json = json_match.group(1)  # Get the captured group
 
-        results = {}
-        if json_part:
             try:
-                # Ensure only JSON part is processed
-                action = json.loads(json_part.strip())
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future_to_tool = {
-                        executor.submit(self._call_tool, call): call for call in action.get("func_calling", [])
-                    }
-                    for future in concurrent.futures.as_completed(future_to_tool):
-                        call = future_to_tool[future]
-                        try:
-                            tool_name, tool_response = future.result()
-                            results[tool_name] = tool_response
-                            if self.verbose:
-                                print(f"{Fore.GREEN}Tool Response ({tool_name}):{Style.RESET_ALL} {tool_response}")
-                        except Exception as e:
-                            if self.verbose:
-                                print(f"{Fore.RED}Error calling tool {call['tool_name']}:{Style.RESET_ALL} {str(e)}")
-                            results[call['tool_name']] = f"Failed to get info: {str(e)}."
-
+                # Try parsing the extracted JSON
+                action = json.loads(extracted_json)
             except json.JSONDecodeError as e:
-                if self.verbose:
-                    print(f"{Fore.RED}JSON Decode Error:{Style.RESET_ALL} {str(e)}")
-                results = {"error": f"Failed to decode JSON: {str(e)}"}
-            except Exception as e:
-                if self.verbose:
-                    print(f"{Fore.RED}Error:{Style.RESET_ALL} {str(e)}")
-                results = {"error": f"An error occurred: {str(e)}"}
-
-            try:
-                if self.verbose:
-                    print()
-                    print(f"{Fore.GREEN}Tool_RESULTS:\n{results}{Style.RESET_ALL}")
-                    print()
-            except:
-                pass
-
-            self.llm.reset()
-
-            return self._generate_summary(results)
-
+                print(f"{Fore.RED}JSON Decode Error:{Style.RESET_ALL} {str(e)}")
+                print("Attempting to fix JSON...")
+                try:
+                    corrected_response = self._fix_json(extracted_json)
+                    action = json.loads(corrected_response)
+                    print("JSON successfully fixed!")
+                except json.JSONDecodeError as e:
+                    if self.verbose:
+                        print(f"{Fore.RED}Error: Unable to fix JSON: {str(e)}")
+                    # Fallback: If JSON can't be extracted/fixed, treat the entire response as non-JSON
+                    self.llm.reset()
+                    return response
         else:
-            # If no tools were needed, the response should be a direct answer.
+            # If no JSON-like structure is found, treat as a regular response
             self.llm.reset()
             return response
+
+        # --- Tool Calling Logic (After JSON Handling) ---
+        func_calling = action.get("func_calling", [])
+        results = {}
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_tool = {
+                executor.submit(self._call_tool, call): call
+                for call in func_calling
+            }
+            for future in concurrent.futures.as_completed(future_to_tool):
+                call = future_to_tool[future]
+                try:
+                    tool_name, tool_response = future.result()
+                    results[tool_name] = tool_response
+                    if self.verbose:
+                        print(
+                            f"{Fore.GREEN}Tool Response ({tool_name}):{Style.RESET_ALL} {tool_response}"
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        print(
+                            f"{Fore.RED}Error calling tool {call['tool_name']}:{Style.RESET_ALL} {str(e)}"
+                        )
+                    results[call["tool_name"]] = (
+                        f"Failed to get info: {str(e)}."
+                    )
+
+        try:
+            if self.verbose:
+                print()
+                print(f"{Fore.GREEN}Tool_RESULTS:\n{results}{Style.RESET_ALL}")
+                print()
+        except:
+            pass
+
+        self.llm.reset()
+
+        return self._generate_summary(results)
 
     def _preprocess_response(self, response: str) -> str:
         """Preprocess the response to fix common JSON errors."""
@@ -312,25 +366,50 @@ Response:
             if nested_keys:
                 query = query[nested_keys[0]]
 
-        # Check if the tool requires parameters
-        if tool.params and isinstance(query, dict):
-            try:
-                # Pass the parameters as keyword arguments
-                tool_response = tool.func(**query)
-            except TypeError as e:
-                if 'unexpected keyword argument' in str(e) or 'missing 1 required positional argument' in str(e):
-                    # Handle case where parameters need to be passed positionally
-                    tool_response = tool.func(*query.values())
-                else:
-                    raise e
-        else:
-            tool_response = tool.func()
+        # Handle action tools (those that don't return a value)
+        if tool.returns_value:
+            # If the tool returns a value, execute it as before
+            if tool.params and isinstance(query, dict):
+                try:
+                    tool_response = tool.func(**query)
+                except TypeError as e:
+                    if (
+                        "unexpected keyword argument" in str(e)
+                        or "missing 1 required positional argument" in str(e)
+                    ):
+                        tool_response = tool.func(*query.values())
+                    else:
+                        raise e
+            else:
+                tool_response = tool.func()
 
-        return tool_name, tool_response
+            return tool_name, tool_response 
+        else:
+            # If it's an action tool:
+            if tool.params and isinstance(query, dict):
+                try:
+                    # --- Convert parameters to integers here ---
+                    if tool_name == "gcd":
+                        query["l"] = int(query["l"])
+                        query["h"] = int(query["h"])
+
+                    tool.func(**query)
+                except TypeError as e:
+                    if (
+                        "unexpected keyword argument" in str(e)
+                        or "missing 1 required positional argument" in str(e)
+                    ):
+                        tool.func(*query.values())
+                    else:
+                        raise e
+            else:
+                tool.func()
+
+            return tool_name, "Action performed successfully."  # Or a suitable message
 
     def _generate_summary(self, results: Dict[str, str]) -> str:
         self.llm.reset()
-        self.llm.__init__(f"""
+        self._initialize_llm(f"""
 You are {self.name}, an AI agent. You are provided with output from the tools in JSON format. Your task is to use this information to give the best possible answer to the query. Reply in a natural language style, only in text, and to the point. Do not reply in JSON.
 
 ### TOOLS:
@@ -354,6 +433,16 @@ llm_tool - If this tool is used, you must answer the user's query in the best po
             if self.verbose:
                 print(f"{Fore.RED}Error generating summary:{Style.RESET_ALL} {str(e)}")
             return "There was an error generating the summary."
+
+    def _finalize_response(self, response: str) -> None:
+        self.llm.reset()
+        self.llm.add_message("user", self.task)
+        if isinstance(self.llm, Gemini):
+            self.llm.add_message("model", response)
+        elif isinstance(self.llm, Cohere):
+            self.llm.add_message("Chatbot", response)
+        else:
+            self.llm.add_message("assistant", response)
 
     def run(self) -> str:
         self.llm.reset()
