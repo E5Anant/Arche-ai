@@ -326,12 +326,6 @@ Response:
 
         return self._generate_summary(results)
 
-    def _preprocess_response(self, response: str) -> str:
-        """Preprocess the response to fix common JSON errors."""
-        # Fix missing colons in parameter sections
-        response = re.sub(r'("parameter":\s*)({)([^}]*)(})', r'\1{\2:\3\4}', response)
-        return response
-
     def _extract_json(self, response: str) -> Optional[str]:
         """Enhanced JSON extraction with better pattern matching."""
         try:
@@ -433,16 +427,6 @@ llm_tool - If this tool is used, you must answer the user's query in the best po
             if self.verbose:
                 print(f"{Fore.RED}Error generating summary:{Style.RESET_ALL} {str(e)}")
             return "There was an error generating the summary."
-
-    def _finalize_response(self, response: str) -> None:
-        self.llm.reset()
-        self.llm.add_message("user", self.task)
-        if isinstance(self.llm, Gemini):
-            self.llm.add_message("model", response)
-        elif isinstance(self.llm, Cohere):
-            self.llm.add_message("Chatbot", response)
-        else:
-            self.llm.add_message("assistant", response)
 
     def run(self) -> str:
         self.llm.reset()
