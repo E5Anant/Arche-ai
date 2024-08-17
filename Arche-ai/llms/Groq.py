@@ -34,7 +34,7 @@ class GroqLLM:
 
     def run(self, prompt: str) -> str:
         self.add_message(self.USER, prompt)
-        stream = self.gr.chat.completions.create(
+        self.stream = self.gr.chat.completions.create(
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -44,7 +44,7 @@ class GroqLLM:
         )
         self.messages.pop()
         r = ""
-        for chunk in stream:
+        for chunk in self.stream:
             if chunk.choices[0].delta.content:
                 r += chunk.choices[0].delta.content
             if self.verbose:
@@ -127,8 +127,6 @@ class GroqLLM:
         -------
         None
         """
-        self.__init__(system_prompt=None,
-                      messages=[])
         self.messages = []
         self.system_prompt = None  # Reinitialize the instance to reset everything
 
