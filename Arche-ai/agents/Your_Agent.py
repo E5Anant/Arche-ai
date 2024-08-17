@@ -93,7 +93,7 @@ class Agent:
     def __init__(
         self,
         llm: Type[GroqLLM],
-        tools: List[OwnTool],
+        tools: List[OwnTool] = [],
         name: str = "Agent",
         description: str = "A helpful AI agent.",
         sample_output: str = "Concise and informative text.",
