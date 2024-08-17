@@ -61,6 +61,7 @@ class Cohere:
         if self.system_prompt!=None:self.add_message(self.SYSTEM, self.system_prompt)
 
     def run(self, prompt: str) -> str:
+        self.add_message(self.USER, prompt)
         """
         Run the LLM
 
@@ -79,7 +80,7 @@ class Cohere:
         >>> llm.run("Hello, how are you?")
         "I'm doing well, thank you!"
         """
-        stream = self.co.chat_stream(
+        self.stream = self.co.chat_stream(
             model = self.model,
             message = prompt,
             temperature = self.temperature,
@@ -88,8 +89,9 @@ class Cohere:
             preamble = self.system_prompt,
             max_tokens = self.max_tokens,
             )
+        self.messages.pop()
         response:str = ""
-        for event in stream:
+        for event in self.stream:
             if event.event_type == "text-generation":
                 if self.verbose:
                     print(event.text, end='')
@@ -191,10 +193,17 @@ class Cohere:
         -------
         None
         """
-        self.__init__(system_prompt=None,
-                      messages=[])
         self.messages = []
         self.system_prompt = None
+        self.stream = self.co.chat_stream(
+            model = self.model,
+            message = "",
+            temperature = self.temperature,
+            chat_history = self.messages,
+            connectors = self.connectors,
+            preamble = self.system_prompt,
+            max_tokens = self.max_tokens,
+            )
 
 if __name__ == "__main__":
     llm = Cohere()
