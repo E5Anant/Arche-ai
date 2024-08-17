@@ -24,7 +24,6 @@ def convert_function(func_name, description, **params):
         },
     }
 
-    # Handle the case when params is None
     if params is None:
         params = {}
 
@@ -40,24 +39,26 @@ def convert_function(func_name, description, **params):
         except:
             descri = f"{str(param_info)}"
 
-        try:
-            param_type = param_info.get("type", "string")
-            valid_types = (
-                "string",
-                "number",
-                "boolean",
-                "enum",
-                "array",
-                "object",
-                "integer",
-            )
-            if param_type not in valid_types:
-                print(
-                    f"Warning: Invalid type '{param_type}' for '{param_name}'. Defaulting to 'string'."
-                )
-                param_type = "string"
-        except:
-            param_type = "string"
+        # --- Type Handling Correction ---
+        param_type = param_info.get("type", "string")
+        valid_types = {
+            "string": "string",
+            "str": "string",  # Add common abbreviations
+            "number": "number",
+            "num": "number",
+            "int": "integer",  # Map "int" to "integer"
+            "integer": "integer",
+            "boolean": "boolean",
+            "bool": "boolean",  # Add common abbreviations
+            "enum": "enum",
+            "array": "array",
+            "list": "array",
+            "dict": "dictionary",
+            "dictionary": "dictionary",
+            "object": "object",
+            "obj": "object",
+        }
+        param_type = valid_types.get(param_type.lower(), "string")  # Normalize and validate
 
         param_properties = {"type": param_type, "description": descri}
 
@@ -111,9 +112,6 @@ class Agent:
             convert_function(tool.func.__name__, tool.description, **(tool.params or {})) for tool in self.tools # Add or {} to handle None
         ] + [convert_function("llm_tool", "A default tool that provides AI-generated text responses and it cannot answer real-time queries because of the knowledge cut off of October 2019.", **{})]
 
-    def _initialize_llm(self, system_prompt: str) -> None:
-        self.llm.__init__(system_prompt=system_prompt)
-
     def add_tool(self, tool: OwnTool):
         """Add a tool to the agent dynamically."""
         self.tools.append(tool)
@@ -125,12 +123,12 @@ class Agent:
         self.all_functions = [func for func in self.all_functions if func['function']['name'] != tool_name]
 
     def _run_no_tool(self) -> str:
-        self._initialize_llm(f"""
+        self.llm.__init__(system_prompt = f"""
 You are {self.name}, {self.description}.
 ### OUTPUT STYLE:
 {self.sample_output}
 ***If output style not mentioned, generate in markdown format.***
-""")
+""", messages = [])
         result = self.llm.run(self.task)
         self.llm.reset()
         return result
@@ -161,7 +159,7 @@ You are {self.name}, {self.description}.
             ]
         )
 
-        self._initialize_llm(
+        self.llm.__init__(system_prompt=
             f"""
 You are an AI assistant designed to generate JSON responses based on provided tools.
 
@@ -252,10 +250,11 @@ Response:
 }}
 
 ***Remember these are just examples, the tools and parameters vary according to the details given above.***
-"""
+""", messages=[]
         )
 
         response = self.llm.run(self.task).strip()
+        self.llm.reset()
 
         if self.verbose:
             print(f"{Fore.YELLOW}Raw LLM Response:{Style.RESET_ALL} {response}")
@@ -403,8 +402,8 @@ Response:
 
     def _generate_summary(self, results: Dict[str, str]) -> str:
         self.llm.reset()
-        self._initialize_llm(f"""
-You are {self.name}, an AI agent. You are provided with output from the tools in JSON format. Your task is to use this information to give the best possible answer to the query. Reply in a natural language style, only in text, and to the point. Do not reply in JSON.
+        self.llm.__init__(system_prompt=f"""
+You are {self.name}, an AI agent. You are provided with output from the tools in JSON format. Your task is to use this information to give the best possible answer to the query.
 
 ### TOOLS:
 llm_tool - If this tool is used, you must answer the user's query in the best possible way.
@@ -416,7 +415,7 @@ llm_tool - If this tool is used, you must answer the user's query in the best po
 ## Instructions:
 - If the output style is not mentioned, just reply in the best possible way in only text form and not JSON.
 - You are no longer generating JSON responses. Provide a natural language summary based on the information from the tools.
-""")
+""", messages=[])
         try:
             summary = self.llm.run(f"[QUERY]\n{self.task}\n\n[TOOLS]\n{results}")
             if self.verbose:
