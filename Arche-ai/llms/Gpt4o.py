@@ -83,7 +83,7 @@ class Gpt4o:
             "Authorization": self.api_key,
             "Content-Type": "application/json",
         }
-        data = {
+        self.data = {
         "temperature": self.temperature,
         
             "messages":  self.messages,
@@ -93,7 +93,7 @@ class Gpt4o:
             "max_tokens": self.max_tokens
         }
         "" if not prompt else self.messages.pop()
-        response = self.session.post(url, headers=headers, json=data)
+        response = self.session.post(url, headers=headers, json=self.data)
         print(response.json())
         return response.json()["choices"][0]["message"]["content"]
 
@@ -233,10 +233,17 @@ class Gpt4o:
         -------
         None
         """
-        self.__init__(system_prompt=None,
-                      messages=[])
         self.messages = []
         self.system_prompt = None
+        self.data = {
+        "temperature": self.temperature,
+        
+            "messages":  self.messages,
+            "model": self.model,
+            "stream": False,
+            "frequency_penalty":  0.0,
+            "max_tokens": self.max_tokens
+        }
 
 def FileToBase64(file_path:str):
     """
