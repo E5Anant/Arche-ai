@@ -1,0 +1,28 @@
+# What is HelpingAI?
+
+HelpingAI is an innovative organization that utilizes artificial intelligence to address a range of societal challenges 
+and contribute to sustainable development. With a focus on emotionally intelligent conversations, HelpingAI has developed large language models, namely HelpingAI-9B and HelpingAI-15B, which are trained to recognize and respond to users' emotional states.
+
+The primary mission of HelpingAI is to harness AI for social good, ensuring its benefits are accessible and beneficial to all. The organization's vision is to use AI as a driving force to achieve the United Nations Sustainable Development Goals, creating a brighter and more equitable future.        
+
+## Key Areas of Focus:
+- Healthcare: Improving healthcare services, especially in underserved communities, through AI solutions for early disease detection, personalized medicine, and enhanced patient care.
+- Education: Enhancing education through personalized learning experiences, global resource-sharing, and skill development for a changing world.
+- Environmental Sustainability: Contributing to conservation efforts by deploying AI for deforestation monitoring, wildlife tracking, and renewable energy optimization.
+- Social Welfare: Addressing social issues, improving access to justice and legal services, and enhancing disaster relief through AI-powered early warning systems.
+- Economic Development: Fostering economic growth, job creation, and skill development, while supporting ethical and responsible AI innovation.
+
+## Approach:
+HelpingAI adopts a collaborative, human-centric approach, working with diverse partners to ensure ethical considerations and cultural sensitivity in their AI solutions. They emphasize data privacy, security, and transparency, ensuring their technologies benefit all stakeholders.
+
+## Impact:
+Since its inception, HelpingAI has made significant strides, improving healthcare access, educational opportunities, and environmental initiatives. They continue to develop innovative AI applications, striving for a positive global impact. 
+
+This report outlines HelpingAI's mission, vision, and ongoing work, showcasing the potential for AI to create positive societal change.
+
+---
+
+For further details on HelpingAI's projects and impact, please refer to their official website and publications.        
+
+[Note: Specific project examples and metrics on HelpingAI's 
+impact can be included to provide a more comprehensive overview.]
