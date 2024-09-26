@@ -97,7 +97,7 @@ class Agent:
 
         self.all_functions = [
             convert_function(tool.func.__name__, tool.description, **(tool.params or {})) for tool in self.tools
-        ] + [convert_function("llm_tool", "A default tool that provides AI-generated text responses. It cannot answer real-time queries due to a knowledge cutoff of October 2019.", **{})]
+        ] + [convert_function("llm_tool", "A default tool that returns AI-generated text responses using the context of previous tool calls for the given query. It cannot answer real-time queries due to a knowledge cutoff of October 2019.", **{})]
 
 
     def add_tool(self, tool: Tool):
@@ -142,15 +142,18 @@ class Agent:
         **Instructions:**
         1. Understand the task.
         2. Identify tool parameters.
-        3. Respond ONLY with a JSON object containing "tool_name" and "parameter".
+        3. Respond ONLY with a JSON object containing "tool_name", "parameter" and "call_ID".
         4. No text outside the JSON.
+        5. To use the output of one tool as input to another tool you can use the following format: {{<call_ID>.output}}
+            For example, if the output of the tool with call_ID 1 is "Hello" and you want to pass it to another tool you can use {{1.output}} which will be replaced with "Hello"
 
         **JSON Format:**
         {{
             "func_calling": [
                 {{
                     "tool_name": "<tool_name>",
-                    "parameter": {{<param_name>: "<param_value>"}}
+                    "parameter": {{<param_name>: "<param_value>"}},
+                    "call_ID": "<call_ID>"
                 }}
             ]
         }}
@@ -161,6 +164,7 @@ class Agent:
                 {{
                     "tool_name": "<tool_name>",
                     "parameter": {{}}
+                    "call_ID": "<call_ID>"
                 }}
             ]
         }}
@@ -172,7 +176,8 @@ class Agent:
             "func_calling": [
                 {{
                     "tool_name": "weather_tool",
-                    "parameter": {{"query": "New York"}}
+                    "parameter": {{"query": "New York"}},
+                    "call_ID": "1"
                 }}
             ]
         }}
@@ -185,10 +190,27 @@ class Agent:
                 {{
                     "tool_name": "time_tool",
                     "parameter": {{}}
+                    "call_ID": "1"
                 }}
             ]
         }}
-
+        **Example (Use output of one tool to another tool):**
+        Task: Get the current time and tell me the hour.
+        Response:
+        {{
+            "func_calling": [
+                {{
+                    "tool_name": "get_time",
+                    "parameter": {{}},
+                    "call_ID": "1"
+                }},
+                {{
+                    "tool_name": "llm_tool",
+                    "parameter": {{'query': "Tell me the hour from this time: {{1.output}}"}}
+                    "call_ID": "2"
+                }}
+            ]
+        }}
         **Example (with llm_tool):**
         Task: Who are you?
         Response:
@@ -196,7 +218,8 @@ class Agent:
             "func_calling": [
                 {{
                     "tool_name": "llm_tool",
-                    "parameter": {{}}
+                    "parameter": {{'query': "Who are you?"}}
+                    "call_ID": "1"
                 }}
             ]
         }}
@@ -209,10 +232,12 @@ class Agent:
                 {{
                     "tool_name": "get_date",
                     "parameter": {{}}
+                    "call_ID": "1"
                 }},
                 {{
                     "tool_name": "get_time",
                     "parameter": {{}}
+                    "call_ID": "2"
                 }}
             ]
         }}
@@ -220,7 +245,7 @@ class Agent:
         **REMEMBER, Important:**
         - Tool and parameter names vary based on the provided tools.
         - Always use tools; `llm_tool` is for basic communication only.
-        - Break a single task into sub-tasks and can call a single tool two times to acomplish the task with accuracy. 
+        - Break a single task into sub-tasks and can call a single tool two times to accomplish the task with accuracy. 
         """, messages=[])
         
         prompt = self.memory.gen_complete_prompt(self.task) if self.memory_enabled else self.task
@@ -235,22 +260,25 @@ class Agent:
             return action
         
         results = {}
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(self._call_tool, call): call
-                for call in action.get("func_calling", [])
-            }
-            for future in concurrent.futures.as_completed(futures):
-                call = futures[future]
-                try:
-                    tool_name, tool_response = future.result()
-                    results[tool_name] = tool_response
-                    if self.verbose:
-                        print(f"{Fore.GREEN}Tool {tool_name}:{Style.RESET_ALL} {tool_response}")
-                except Exception as e:
-                    if self.verbose:
-                        print(f"{Fore.RED}Tool Error ({call['tool_name']}):{Style.RESET_ALL} {e}")
-                    results[call["tool_name"]] = f"Error: {e}"
+        for i, call in enumerate(action.get("func_calling", [])):
+            tool_name = call["tool_name"]
+            
+            #Substitute the parameters
+            parameters = call.get("parameter", {})
+            for k, v in parameters.items():
+                if isinstance(v, str) and re.search(r"{\d+\.output}", v):
+                    for prev_call in action.get("func_calling", [])[:i]:
+                        if f"{{{prev_call['call_ID']}.output}}" in v:
+                            parameters[k] = v.replace(f"{{{prev_call['call_ID']}.output}}", str(results[prev_call['call_ID']])) # Convert to string 
+            try:
+                tool_response = self._call_tool(call, results) # Pass results to _call_tool
+                results[call['call_ID']] = tool_response  # Store output with call_ID
+                if self.verbose:
+                    print(f"{Fore.GREEN}Tool {tool_name}:{Style.RESET_ALL} {tool_response}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"{Fore.RED}Tool Error ({call['tool_name']}):{Style.RESET_ALL} {e}")
+                results[call['call_ID']] = f"Error: {e}"
 
         if self.memory_enabled:
             # Update memory directly with JSON tool results
@@ -261,6 +289,9 @@ class Agent:
   
     def _parse_and_fix_json(self, json_str: str) -> Dict | str:
         """Parses JSON string and attempts to fix common errors."""
+
+        # Remove any text before the starting '{' and after the ending '}'
+        json_str = json_str[json_str.find('{'):json_str.rfind('}')+1]
         try:
             return json.loads(json_str)
         except json.JSONDecodeError as e:
@@ -271,21 +302,22 @@ class Agent:
             json_str = json_str.replace("'", "\"")  # Replace single quotes
             json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
             json_str = re.sub(r'{\s*,', '{', json_str)  # Remove leading commas
+            json_str = re.sub(r'\s*,\s*', ',', json_str)  # Remove whitespaces around commas
 
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError as e:
                 return f"Error: Could not parse JSON - {e}" 
 
-    def _call_tool(self, call):
+    def _call_tool(self, call, results):
         tool_name = call["tool_name"]
-        query = call.get("parameter", {})  # Default to empty dict if no parameter
+        query = call.get("parameter", {})  
 
         # Find the tool
         tool = next((t for t in self.tools if t.func.__name__ == tool_name), None)
 
         if tool_name.lower() == "llm_tool":
-            return tool_name, "[REPLY QUERY]"
+            return self._process_llm_tool(query, results)
 
         if not tool:
             raise ValueError(f"Tool '{tool_name}' not found.")
@@ -302,7 +334,33 @@ class Agent:
         else:
             tool_response = tool.func()
 
-        return tool_name, tool_response if tool.returns_value else "Action completed."
+        return tool_response if tool.returns_value else "Action completed."
+
+    def _process_llm_tool(self, query, tool_results):
+        prompt_context = f"Previous tool results:\n{tool_results}\n\nQuery: {query}"
+
+        self.llm.__init__(system_prompt=f"""
+            You are {self.name}, an AI agent. {self.description}.
+            You will receive information from previous tool calls. Use this information to answer the query.
+
+            **Important:**
+            - You CANNOT directly interact with tools or files.
+            - Your role is ONLY to generate text responses based on the given information. 
+            - DO NOT generate content that should be written to files. 
+            - DO NOT assume that a file has been written to, even if the query asks for it.
+            - DO NOT generate code or try to call any code interpreter.
+
+            ### OUTPUT STYLE:
+            {self.expected_output}
+
+            ## Instructions:
+            - Respond clearly and concisely, using the provided tool results.
+            - If no output style is specified, respond in the most appropriate way.
+        """, messages=[])
+
+        response = self.llm.run(prompt_context)
+        self.llm.reset()
+        return response
 
     def _generate_summary(self, results: Dict[str, str]) -> str:
         prompt = f"[QUERY]\n{self.task}\n\n[TOOLS]\n{results}"
@@ -310,19 +368,22 @@ class Agent:
             prompt = self.memory.gen_complete_prompt(prompt)
         
         self.llm.__init__(system_prompt=f"""
-        You are {self.name}, an AI agent. {self.description}.
-        You receive tool outputs in JSON format. Use this to best answer the query.
+            You are {self.name}, an AI agent. {self.description}.
+            You will receive information from previous tool calls. Use this information to answer the query.
 
-        ### TOOLS:
-        llm_tool - Answer the query directly if this tool is used.
-        {self.all_functions}
+            **Important:**
+            - You CANNOT directly interact with tools or files.
+            - Your role is ONLY to generate text responses based on the given information. 
+            - DO NOT generate content that should be written to files. 
+            - DO NOT assume that a file has been written to, even if the query asks for it.
+            - DO NOT generate code or try to call any code interpreter.
 
-        ### OUTPUT STYLE:
-        {self.expected_output}
+            ### OUTPUT STYLE:
+            {self.expected_output}
 
-        ## Instructions:
-        - Respond clearly and concisely, using the provided tool results.
-        - If no output style is specified, respond in the most appropriate way.
+            ## Instructions:
+            - Respond clearly and concisely, using the provided tool results.
+            - If no output style is specified, respond in the most appropriate way.
         """, messages=[])
         
         summary = self.llm.run(prompt)
